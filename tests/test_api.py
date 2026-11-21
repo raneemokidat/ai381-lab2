@@ -32,7 +32,7 @@ def customer():
 def test_health_contract(client):
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json()["status"] == "ok"
 
 
 def test_model_loads_and_predicts(customer):

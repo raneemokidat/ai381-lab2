@@ -1,3 +1,4 @@
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -37,7 +38,9 @@ app = FastAPI(title="AI381 Churn API", lifespan=lifespan)
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    metadata_file = ROOT / "artifacts" / "metadata.json"
+    metadata = json.loads(metadata_file.read_text()) if metadata_file.exists() else {}
+    return {"status": "ok", **metadata}
 
 
 @app.post("/predict", response_model=Prediction)

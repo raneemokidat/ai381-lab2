@@ -1,0 +1,82 @@
+# Lab 3: every pull request must beat the existing champion.
+# The CI runner creates its own MLflow server, then checks the PR against main.
+name: train-and-gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "data/**"
+      - "scripts/**"
+      - "requirements*.txt"
+      - "artifacts/**"
+      - ".github/workflows/train.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: train and gate
+    runs-on: ubuntu-latest
+    env:
+      MLFLOW_TRACKING_URI: http://localhost:5000
+      GIT_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install Python requirements
+        run: pip install -r requirements-dev.txt
+
+      - name: Start fresh MLflow server
+        run: docker compose -f docker-compose.mlflow.yml up -d --wait
+
+      - name: Read champion from main (PR base)
+        if: github.event_name == 'pull_request'
+        run: |
+          git show "${{ github.event.pull_request.base.sha }}:artifacts/champion.json" \
+            > "$RUNNER_TEMP/champion.json" 2>/dev/null \
+            && { echo "Previous champion:"; cat "$RUNNER_TEMP/champion.json"; } \
+            || { echo "No champion on main; first suitable model may be promoted."; rm -f "$RUNNER_TEMP/champion.json"; }
+
+      - name: Train three candidates and log to MLflow
+        run: |
+          echo "BATCH=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          BATCH="${GITHUB_SHA::7}" python -m src.train.train_mlflow
+
+      - name: Promotion gate (BLOCKED exits with code 1)
+        run: python scripts/promote.py --champion-file "$RUNNER_TEMP/champion.json"
+
+      - name: Build image containing promoted model
+        run: docker build --build-arg GIT_SHA="$GITHUB_SHA" -t "churn-api:${GITHUB_SHA::7}" .
+
+      - name: Smoke test promoted container
+        run: |
+          docker run -d --name lab3-api -p 8000:8000 "churn-api:${GITHUB_SHA::7}"
+          bash scripts/smoke_test.sh http://localhost:8000
+
+      - name: Stop test container
+        if: always()
+        run: docker rm -f lab3-api 2>/dev/null || true
+
+      - name: Show gate result
+        if: always()
+        run: |
+          {
+            echo "### AI381 Lab 3 promotion gate"
+            echo "- Batch: \`${GITHUB_SHA::7}\`"
+            echo "- See the **Promotion gate** step above for PROMOTED or BLOCKED."
+            echo "- New champion metadata and model are exported to artifacts/ during this run."
+          } >> "$GITHUB_STEP_SUMMARY"
