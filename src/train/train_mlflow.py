@@ -18,7 +18,6 @@ import numpy as np
 import pandas as pd
 from mlflow.models import infer_signature
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score, roc_auc_score
 from sklearn.model_selection import train_test_split
@@ -33,15 +32,13 @@ BATCH = os.getenv("BATCH", os.getenv("GIT_SHA", "local")[:7])
 
 # Three genuinely different model families, not just three names.
 CANDIDATES = {
-    "logreg": LogisticRegression(C=1.0, max_iter=1000, random_state=42),
-    "random_forest": RandomForestClassifier(
-        n_estimators=150, max_depth=8, min_samples_leaf=2, random_state=42, n_jobs=1
-    ),
-    "gradient_boosting": GradientBoostingClassifier(
-        n_estimators=100, learning_rate=0.08, max_depth=3, random_state=42
+    "weak": LogisticRegression(
+        C=0.00001,
+        max_iter=1000,
+        random_state=42,
     ),
 }
-
+   
 
 def preprocessing() -> ColumnTransformer:
     return ColumnTransformer([
