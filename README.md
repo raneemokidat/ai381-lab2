@@ -1,6 +1,80 @@
-# AI381 Lab 2 — Churn service
+# AI381 Lab 2 + Lab 3 — Churn MLOps
 
 [![CI](https://github.com/raneemokidat/ai381-lab2/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/raneemokidat/ai381-lab2/actions/workflows/ci.yml)
+
+## Lab 3 — Tracked, Gated and Shipped
+
+This lab extends Lab 2 with experiment tracking, model selection,
+a promotion gate, and Docker deployment.
+
+### Model training and MLflow
+
+I trained and compared three models:
+- Logistic Regression
+- Random Forest
+- Gradient Boosting
+
+MLflow records parameters, evaluation metrics, model artifacts,
+the dataset SHA-256 hash, and the model signature.
+
+To start MLflow locally:
+
+```bash
+docker compose -f docker-compose.mlflow.yml up -d --wait
+export MLFLOW_TRACKING_URI=http://localhost:5001
+python -m src.train.train_mlflow
+```
+
+### Model selection
+
+The selected champion is Logistic Regression.
+
+- F1: 0.587
+- AUC: 0.792
+- p95 latency: 1.25 ms
+- Model size: 3.6 KB
+
+The full comparison and trade-offs are in
+[MODEL_SELECTION.md](MODEL_SELECTION.md).
+
+### Promotion gate
+
+The gate requires:
+- p95 latency of at most 25 ms
+- An F1 improvement of at least 0.01 over the current champion
+
+A deliberately weaker model was rejected with F1 = 0.000.
+
+Evidence:
+- [Successful promotion PR #3](https://github.com/raneemokidat/ai381-lab2/pull/3)
+- [Blocked model PR #4](https://github.com/raneemokidat/ai381-lab2/pull/4)
+
+PR #4 is intentionally not merged.
+
+### Local deployment
+
+```bash
+docker build --build-arg GIT_SHA=$(git rev-parse HEAD) -t churn-api:local .
+docker compose -f docker-compose.deploy.yml up -d
+bash scripts/smoke_test.sh http://localhost:8000
+```
+
+The API provides /health and /predict.
+
+### Lineage
+
+The deployed model is linked to an MLflow Run ID and a Docker
+image built from a Git commit. The original local training run
+records train_git_sha as "local", so training-time Git lineage
+is not fully established.
+
+### Main files
+
+- `src/train/train_mlflow.py` — model training and tracking
+- `scripts/promote.py` — promotion gate
+- `.github/workflows/train.yml` — CI training and gate
+- `artifacts/` — champion model and metadata
+- `docker-compose.deploy.yml` — local deployment
 
 ## Start with one command
 

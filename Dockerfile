@@ -16,7 +16,9 @@ RUN if [ -f artifacts/model.joblib ] && [ -f artifacts/champion.json ]; then \
 FROM python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2 AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends --only-upgrade libpcre2-8-0 perl-base && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN --mount=type=bind,from=builder,source=/wheels,target=/wheels pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt
 RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --no-create-home app
