@@ -22,7 +22,7 @@ jobs:
     name: train and gate
     runs-on: ubuntu-latest
     env:
-      MLFLOW_TRACKING_URI: http://localhost:5000
+      MLFLOW_TRACKING_URI: http://localhost:5001
       GIT_SHA: ${{ github.sha }}
     steps:
       - name: Checkout code
