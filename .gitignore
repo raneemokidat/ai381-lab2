@@ -3,6 +3,10 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
-artifacts/
+artifacts/*
+!artifacts/.gitkeep
+!artifacts/champion.json
+!artifacts/model.joblib
+!artifacts/metadata.json
 .env
 .DS_Store
