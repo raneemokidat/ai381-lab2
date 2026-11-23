@@ -1,17 +1,11 @@
-# Lab 3: every pull request must beat the existing champion.
-# The CI runner creates its own MLflow server, then checks the PR against main.
+
+# Lab 3: run a required check on every PR.
+# Train and apply the promotion gate only for model-related changes.
 name: train-and-gate
 
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "src/**"
-      - "data/**"
-      - "scripts/**"
-      - "requirements*.txt"
-      - "artifacts/**"
-      - ".github/workflows/train.yml"
   workflow_dispatch:
 
 permissions:
@@ -24,13 +18,36 @@ jobs:
     env:
       MLFLOW_TRACKING_URI: http://localhost:5001
       GIT_SHA: ${{ github.sha }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
+      - name: Detect model-related changes
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "model_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")
+          printf '%s\n' "$changed"
+
+          if printf '%s\n' "$changed" | grep -Eq '^(src/train/|data/|scripts/promote\.py$|artifacts/|requirements[^/]*\.txt$)'; then
+            echo "model_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "model_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Python 3.12
+        if: steps.changes.outputs.model_changed == 'true'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -38,13 +55,15 @@ jobs:
           cache-dependency-path: requirements-dev.txt
 
       - name: Install Python requirements
+        if: steps.changes.outputs.model_changed == 'true'
         run: pip install -r requirements-dev.txt
 
       - name: Start fresh MLflow server
+        if: steps.changes.outputs.model_changed == 'true'
         run: docker compose -f docker-compose.mlflow.yml up -d --wait
 
       - name: Read champion from main (PR base)
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.changes.outputs.model_changed == 'true'
         run: |
           git show "${{ github.event.pull_request.base.sha }}:artifacts/champion.json" \
             > "$RUNNER_TEMP/champion.json" 2>/dev/null \
@@ -52,17 +71,21 @@ jobs:
             || { echo "No champion on main; first suitable model may be promoted."; rm -f "$RUNNER_TEMP/champion.json"; }
 
       - name: Train three candidates and log to MLflow
+        if: steps.changes.outputs.model_changed == 'true'
         run: |
           echo "BATCH=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
           BATCH="${GITHUB_SHA::7}" python -m src.train.train_mlflow
 
       - name: Promotion gate (BLOCKED exits with code 1)
+        if: steps.changes.outputs.model_changed == 'true'
         run: python scripts/promote.py --champion-file "$RUNNER_TEMP/champion.json"
 
       - name: Build image containing promoted model
+        if: steps.changes.outputs.model_changed == 'true'
         run: docker build --build-arg GIT_SHA="$GITHUB_SHA" -t "churn-api:${GITHUB_SHA::7}" .
 
       - name: Smoke test promoted container
+        if: steps.changes.outputs.model_changed == 'true'
         run: |
           docker run -d --name lab3-api -p 8000:8000 "churn-api:${GITHUB_SHA::7}"
           bash scripts/smoke_test.sh http://localhost:8000
@@ -77,6 +100,10 @@ jobs:
           {
             echo "### AI381 Lab 3 promotion gate"
             echo "- Batch: \`${GITHUB_SHA::7}\`"
-            echo "- See the **Promotion gate** step above for PROMOTED or BLOCKED."
-            echo "- New champion metadata and model are exported to artifacts/ during this run."
+            if [ "${{ steps.changes.outputs.model_changed }}" = "false" ]; then
+              echo "- No model changes: promotion not required."
+            else
+              echo "- Model-related changes detected."
+              echo "- See the Promotion gate step for PROMOTED or BLOCKED."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
