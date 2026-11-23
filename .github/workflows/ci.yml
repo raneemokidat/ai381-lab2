@@ -35,7 +35,7 @@ jobs:
       - name: Image name
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}" >> "$GITHUB_ENV"
       - name: Build image
-        run: docker build --tag "$IMAGE" .
+        run: docker build --build-arg GIT_SHA="$GITHUB_SHA" --tag "$IMAGE" .
       - name: Smoke test
         run: |
           set -euo pipefail
